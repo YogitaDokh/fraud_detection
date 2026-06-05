@@ -17,7 +17,7 @@ FEATURE_NAMES = [
     "network_quality", "is_first_transaction", "store_type", "velocity_score"
 ]
 
-# Attractive HTML Template for the Web UI
+# Attractive HTML Template for the Web UI (Fixed JS Error Handling)
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -209,7 +209,6 @@ HTML_TEMPLATE = """
     document.getElementById('predictionForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         
-        // Convert form entries directly into URL parameters for a standard form POST
         const formData = new FormData(e.target);
         const searchParams = new URLSearchParams(formData);
 
@@ -224,7 +223,7 @@ HTML_TEMPLATE = """
                 body: searchParams.toString()
             });
             
-            // Read response content as plain text string split by pipe delimiter
+            // Read response purely as plain text (Fixed from JSON parsing)
             const textResponse = await response.text();
 
             resultBox.style.display = 'block';
@@ -233,7 +232,7 @@ HTML_TEMPLATE = """
                 resTitle.innerText = "Prediction Success!";
                 resTitle.style.color = "#166534";
                 
-                // Parse custom clean text response format (e.g., "prediction,confidence")
+                // Parse plain text response structure split by pipe character "|"
                 const parts = textResponse.split('|');
                 let displayHTML = `<strong>Prediction Class:</strong> ${parts[0]}`;
                 if(parts.length > 1 && parts[1] !== "None") {
@@ -242,7 +241,8 @@ HTML_TEMPLATE = """
                 }
                 resContent.innerHTML = displayHTML;
             } else {
-                throw new Error(textResponse || "Unknown server error");
+                // Throws the explicit text response directly on error status codes (like 400 or 500)
+                throw new Error(textResponse);
             }
         } catch (err) {
             resultBox.style.display = 'block';
@@ -264,7 +264,6 @@ def home():
 @app.route("/predict", methods=["POST"])
 def predict():
     try:
-        # Collect features using standard form parameters
         features = []
         missing_features = []
         
@@ -276,6 +275,7 @@ def predict():
                 missing_features.append(feature)
 
         if missing_features:
+            # Returns simple string on bad parameter inputs
             return f"Missing required features: {', '.join(missing_features)}", 400
 
         input_data = np.array([features])
@@ -287,7 +287,7 @@ def predict():
         except AttributeError:
             confidence = "None"
 
-        # Return a simple pipe-separated plain text string instead of JSON
+        # Returns a plain text format separated by a "|" string
         return f"{int(prediction[0])}|{confidence}", 200
 
     except Exception as e:
