@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, render_template_string
 import pickle
 import numpy as np
 import os
@@ -208,11 +208,10 @@ HTML_TEMPLATE = """
 <script>
     document.getElementById('predictionForm').addEventListener('submit', async (e) => {
         e.preventDefault();
+        
+        // Convert form entries directly into URL parameters for a standard form POST
         const formData = new FormData(e.target);
-        const data = {};
-        formData.forEach((value, key) => {
-            data[key] = parseFloat(value);
-        });
+        const searchParams = new URLSearchParams(formData);
 
         const resultBox = document.getElementById('resultBox');
         const resTitle = document.getElementById('resTitle');
@@ -221,10 +220,12 @@ HTML_TEMPLATE = """
         try {
             const response = await fetch('/predict', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: searchParams.toString()
             });
-            const result = await response.json();
+            
+            // Read response content as plain text string split by pipe delimiter
+            const textResponse = await response.text();
 
             resultBox.style.display = 'block';
             if (response.ok) {
@@ -232,13 +233,16 @@ HTML_TEMPLATE = """
                 resTitle.innerText = "Prediction Success!";
                 resTitle.style.color = "#166534";
                 
-                let text = `<strong>Prediction Class:</strong> ${result.prediction}`;
-                if (result.confidence !== undefined) {
-                    text += `<br><strong>Confidence:</strong> ${(result.confidence * 100).toFixed(2)}%`;
+                // Parse custom clean text response format (e.g., "prediction,confidence")
+                const parts = textResponse.split('|');
+                let displayHTML = `<strong>Prediction Class:</strong> ${parts[0]}`;
+                if(parts.length > 1 && parts[1] !== "None") {
+                    let confidencePercent = (parseFloat(parts[1]) * 100).toFixed(2);
+                    displayHTML += `<br><strong>Confidence:</strong> ${confidencePercent}%`;
                 }
-                resContent.innerHTML = text;
+                resContent.innerHTML = displayHTML;
             } else {
-                throw new Error(result.error || "Unknown server error");
+                throw new Error(textResponse || "Unknown server error");
             }
         } catch (err) {
             resultBox.style.display = 'block';
@@ -260,20 +264,19 @@ def home():
 @app.route("/predict", methods=["POST"])
 def predict():
     try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "No input data provided"}), 400
-
+        # Collect features using standard form parameters
         features = []
         missing_features = []
+        
         for feature in FEATURE_NAMES:
-            if feature in data:
-                features.append(data[feature])
+            value = request.form.get(feature)
+            if value is not None:
+                features.append(float(value))
             else:
                 missing_features.append(feature)
 
         if missing_features:
-            return jsonify({"error": f"Missing required features: {missing_features}"}), 400
+            return f"Missing required features: {', '.join(missing_features)}", 400
 
         input_data = np.array([features])
         prediction = model.predict(input_data)
@@ -282,18 +285,14 @@ def predict():
             probabilities = model.predict_proba(input_data)
             confidence = float(np.max(probabilities))
         except AttributeError:
-            confidence = None
+            confidence = "None"
 
-        response = {"prediction": int(prediction[0])}
-        if confidence is not None:
-            response["confidence"] = confidence
-
-        return jsonify(response)
+        # Return a simple pipe-separated plain text string instead of JSON
+        return f"{int(prediction[0])}|{confidence}", 200
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return f"Server Error: {str(e)}", 500
 
 if __name__ == "__main__":
-    # Render assigns ports dynamically using the PORT environment variable
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
