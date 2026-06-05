@@ -7,7 +7,7 @@ import os
 app = Flask(__name__)
 
 # Load the trained KNN model
-MODEL_PATH = 'KNN_model.pkl'
+MODEL_PATH = 'KNN_models.pkl'
 if os.path.exists(MODEL_PATH):
     with open(MODEL_PATH, 'rb') as file:
         model = pickle.load(file)
