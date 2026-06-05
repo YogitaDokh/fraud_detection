@@ -1,298 +1,218 @@
-from flask import Flask, request, render_template_string
-import pickle
+from flask import Flask, render_template_string, request
+import pandas as pd
 import numpy as np
+import pickle
 import os
 
 app = Flask(__name__)
 
-# Load the pre-trained KNN model
-MODEL_PATH = "KNN_model.pkl"
-with open(MODEL_PATH, "rb") as file:
-    model = pickle.load(file)
+# Load the trained KNN model
+MODEL_PATH = 'KNN_model.pkl'
+if os.path.exists(MODEL_PATH):
+    with open(MODEL_PATH, 'rb') as file:
+        model = pickle.load(file)
+else:
+    model = None
 
-# Expected order of feature names from the model metadata
-FEATURE_NAMES = [
-    "transaction_amount", "hour_of_day", "is_weekend", "num_items", 
-    "customer_age", "prev_transactions", "distance_from_home", "device_type", 
-    "network_quality", "is_first_transaction", "store_type", "velocity_score"
-]
-
-# Attractive HTML Template for the Web UI (Fixed JS Error Handling)
+# Single-file HTML template with modern UI styling using Bootstrap 5
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KNN Prediction Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <title>Fraud Guard AI</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        :root {
-            --bg-color: #f4f6f9;
-            --card-bg: #ffffff;
-            --text-color: #2d3748;
-            --primary: #4f46e5;
-            --primary-hover: #4338ca;
-            --border: #e2e8f0;
-        }
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            margin: 0;
-            padding: 40px 20px;
-            display: flex;
-            justify-content: center;
-        }
-        .container {
-            max-width: 700px;
-            width: 100%;
-            background: var(--card-bg);
-            padding: 35px;
-            border-radius: 16px;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
-        }
-        h1 {
-            font-size: 24px;
-            font-weight: 600;
-            margin-bottom: 8px;
-            color: #1a202c;
-        }
-        p.subtitle {
-            color: #718096;
-            margin-bottom: 30px;
-            font-size: 14px;
-        }
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 20px;
-        }
-        @media (max-width: 600px) {
-            .grid { grid-template-columns: 1fr; }
-        }
-        .form-group {
-            display: flex;
-            flex-direction: column;
-        }
-        label {
-            font-size: 13px;
-            font-weight: 600;
-            margin-bottom: 6px;
-            text-transform: capitalize;
-            color: #4a5568;
-        }
-        input, select {
-            padding: 10px 14px;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            font-size: 14px;
-            background-color: #f8fafc;
-            transition: all 0.2s;
-        }
-        input:focus, select:focus {
-            outline: none;
-            border-color: var(--primary);
-            background-color: #fff;
-            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
-        }
-        button {
-            grid-column: span 2;
-            background-color: var(--primary);
+        body { background-color: #f4f6f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .hero-banner {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
             color: white;
-            padding: 14px;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.2s;
-            margin-top: 10px;
+            padding: 40px 20px;
+            border-radius: 0 0 25px 25px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
         }
-        @media (max-width: 600px) { button { grid-column: span 1; } }
-        button:hover { background-color: var(--primary-hover); }
-        .result-box {
-            margin-top: 30px;
-            padding: 20px;
-            border-radius: 8px;
-            background-color: #f0fdf4;
-            border: 1px solid #bbf7d0;
-            display: none;
-            text-align: center;
-        }
-        .result-box.error {
-            background-color: #fef2f2;
-            border-color: #fecaca;
-            color: #991b1b;
-        }
-        .result-title {
-            font-weight: 600;
-            font-size: 18px;
-            color: #166534;
-            margin-bottom: 4px;
-        }
-        .result-val { font-size: 15px; color: #1e293b; }
+        .card { border: none; border-radius: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        .form-label { font-weight: 600; color: #495057; font-size: 0.9rem; }
+        .form-control, .form-select { border-radius: 8px; padding: 10px; border: 1px solid #ced4da; }
+        .form-control:focus, .form-select:focus { box-shadow: 0 0 0 0.25rem rgba(42, 82, 152, 0.25); border-color: #2a5298; }
+        .btn-primary { background-color: #2a5298; border: none; padding: 12px; font-weight: 600; border-radius: 8px; transition: all 0.3s; }
+        .btn-primary:hover { background-color: #1e3c72; transform: translateY(-1px); }
+        .result-box { border-radius: 12px; padding: 25px; text-align: center; font-size: 1.25rem; font-weight: bold; margin-top: 20px; }
+        .result-safe { background-color: #d1e7dd; color: #0f5132; border: 2px solid #badbcc; }
+        .result-fraud { background-color: #f8d7da; color: #842029; border: 2px solid #f5c2c7; }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <h1>KNN Model Predictor</h1>
-    <p class="subtitle">Fill out the features below to retrieve a real-time intelligence prediction.</p>
-    
-    <form id="predictionForm" class="grid">
-        <div class="form-group">
-            <label>Transaction Amount</label>
-            <input type="number" step="any" name="transaction_amount" value="150.00" required>
-        </div>
-        <div class="form-group">
-            <label>Hour of Day (0-23)</label>
-            <input type="number" min="0" max="23" name="hour_of_day" value="14" required>
-        </div>
-        <div class="form-group">
-            <label>Is Weekend</label>
-            <select name="is_weekend">
-                <option value="0">No</option>
-                <option value="1">Yes</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Num Items</label>
-            <input type="number" min="1" name="num_items" value="2" required>
-        </div>
-        <div class="form-group">
-            <label>Customer Age</label>
-            <input type="number" min="0" name="customer_age" value="30" required>
-        </div>
-        <div class="form-group">
-            <label>Prev Transactions</label>
-            <input type="number" min="0" name="prev_transactions" value="4" required>
-        </div>
-        <div class="form-group">
-            <label>Distance From Home</label>
-            <input type="number" step="any" name="distance_from_home" value="3.5" required>
-        </div>
-        <div class="form-group">
-            <label>Device Type</label>
-            <input type="number" name="device_type" value="1" required>
-        </div>
-        <div class="form-group">
-            <label>Network Quality</label>
-            <input type="number" name="network_quality" value="3" required>
-        </div>
-        <div class="form-group">
-            <label>Is First Transaction</label>
-            <select name="is_first_transaction">
-                <option value="0">No</option>
-                <option value="1">Yes</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Store Type</label>
-            <input type="number" name="store_type" value="2" required>
-        </div>
-        <div class="form-group">
-            <label>Velocity Score</label>
-            <input type="number" step="any" name="velocity_score" value="0.75" required>
-        </div>
-        
-        <button type="submit">Generate Prediction</button>
-    </form>
-
-    <div id="resultBox" class="result-box">
-        <div class="result-title" id="resTitle">Prediction Generated</div>
-        <div class="result-val" id="resContent"></div>
+    <div class="hero-banner text-center">
+        <h1 class="display-5 fw-bold">🛡️ Fraud Guard AI</h1>
+        <p class="lead opacity-75">Real-time Transaction Fraud Risk Assessment Engine</p>
     </div>
-</div>
 
-<script>
-    document.getElementById('predictionForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        
-        const formData = new FormData(e.target);
-        const searchParams = new URLSearchParams(formData);
+    <div class="container mb-5">
+        {% if model_error %}
+        <div class="alert alert-danger text-center" role="alert">
+            <strong>Error:</strong> {{ model_error }}
+        </div>
+        {% endif %}
 
-        const resultBox = document.getElementById('resultBox');
-        const resTitle = document.getElementById('resTitle');
-        const resContent = document.getElementById('resContent');
+        <div class="row g-4">
+            <div class="col-lg-8">
+                <div class="card p-4">
+                    <h4 class="mb-4 text-primary">📥 Transaction Details</h4>
+                    <form method="POST" action="/">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Transaction Amount ($)</label>
+                                <input type="number" step="0.01" class="form-control" name="transaction_amount" value="{{ inputs.transaction_amount or 150.0 }}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Hour of Day (0-23)</label>
+                                <input type="number" min="0" max="23" class="form-control" name="hour_of_day" value="{{ inputs.hour_of_day or 14 }}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Is Weekend?</label>
+                                <select class="form-select" name="is_weekend">
+                                    <option value="0" {% if inputs.is_weekend == '0' %}selected{% endif %}>No</option>
+                                    <option value="1" {% if inputs.is_weekend == '1' %}selected{% endif %}>Yes</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Number of Items</label>
+                                <input type="number" min="1" class="form-control" name="num_items" value="{{ inputs.num_items or 2 }}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Customer Age</label>
+                                <input type="number" min="18" class="form-control" name="customer_age" value="{{ inputs.customer_age or 35 }}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Previous Transactions Count</label>
+                                <input type="number" min="0" class="form-control" name="prev_transactions" value="{{ inputs.prev_transactions or 5 }}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Distance from Home (miles)</label>
+                                <input type="number" step="0.1" class="form-control" name="distance_from_home" value="{{ inputs.distance_from_home or 12.5 }}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Device Type (ID Encoded)</label>
+                                <input type="number" class="form-control" name="device_type" value="{{ inputs.device_type or 1 }}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Network Quality Index</label>
+                                <input type="number" class="form-control" name="network_quality" value="{{ inputs.network_quality or 3 }}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Is First Transaction?</label>
+                                <select class="form-select" name="is_first_transaction">
+                                    <option value="0" {% if inputs.is_first_transaction == '0' %}selected{% endif %}>No</option>
+                                    <option value="1" {% if inputs.is_first_transaction == '1' %}selected{% endif %}>Yes</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Store Type (ID Encoded)</label>
+                                <input type="number" class="form-control" name="store_type" value="{{ inputs.store_type or 2 }}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Velocity Score</label>
+                                <input type="number" step="0.1" class="form-control" name="velocity_score" value="{{ inputs.velocity_score or 1.2 }}" required>
+                            </div>
+                        </div>
+                        <div class="mt-4">
+                            <button type="submit" class="btn btn-primary w-100">🚀 Analyze Transaction</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
 
-        try {
-            const response = await fetch('/predict', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: searchParams.toString()
-            });
-            
-            // Read response purely as plain text (Fixed from JSON parsing)
-            const textResponse = await response.text();
+            <div class="col-lg-4">
+                <div class="card p-4 h-100 d-flex flex-column justify-content-start">
+                    <h4 class="mb-4 text-primary">🔍 Evaluation Result</h4>
+                    
+                    {% if prediction is not none %}
+                        {% if prediction == 1 %}
+                            <div class="result-box result-fraud">
+                                🚨 HIGH RISK DETECTED
+                                <div class="fs-6 fw-normal mt-2">This transaction aligns closely with signature fraudulent patterns.</div>
+                            </div>
+                        {% else %}
+                            <div class="result-box result-safe">
+                                ✅ TRANSACTION APPROVED
+                                <div class="fs-6 fw-normal mt-2">Low risk evaluation. Safe to proceed with settlement.</div>
+                            </div>
+                        {% endif %}
 
-            resultBox.style.display = 'block';
-            if (response.ok) {
-                resultBox.className = "result-box";
-                resTitle.innerText = "Prediction Success!";
-                resTitle.style.color = "#166534";
-                
-                // Parse plain text response structure split by pipe character "|"
-                const parts = textResponse.split('|');
-                let displayHTML = `<strong>Prediction Class:</strong> ${parts[0]}`;
-                if(parts.length > 1 && parts[1] !== "None") {
-                    let confidencePercent = (parseFloat(parts[1]) * 100).toFixed(2);
-                    displayHTML += `<br><strong>Confidence:</strong> ${confidencePercent}%`;
-                }
-                resContent.innerHTML = displayHTML;
-            } else {
-                // Throws the explicit text response directly on error status codes (like 400 or 500)
-                throw new Error(textResponse);
-            }
-        } catch (err) {
-            resultBox.style.display = 'block';
-            resultBox.className = "result-box error";
-            resTitle.innerText = "Error Occurred";
-            resTitle.style.color = "#991b1b";
-            resContent.innerText = err.message;
-        }
-    });
-</script>
+                        {% if probability is not none %}
+                            <div class="mt-4 text-center">
+                                <p class="text-muted mb-1">Model Confidence Probability</p>
+                                <h3 class="fw-bold text-dark">{{ "%.2f"|format(probability) }}%</h3>
+                            </div>
+                        {% endif %}
+                    {% else %}
+                        <div class="text-center text-muted my-auto py-5">
+                            <p class="mb-0">Fill out the form details and hit <strong>Analyze Transaction</strong> to trigger the detection model.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>
 """
 
-@app.route("/", methods=["GET"])
+@app.route('/', methods=['GET', 'POST'])
 def home():
-    return render_template_string(HTML_TEMPLATE)
+    prediction = None
+    probability = None
+    model_error = None
+    inputs = {}
 
-@app.route("/predict", methods=["POST"])
-def predict():
-    try:
-        features = []
-        missing_features = []
-        
-        for feature in FEATURE_NAMES:
-            value = request.form.get(feature)
-            if value is not None:
-                features.append(float(value))
-            else:
-                missing_features.append(feature)
+    if model is None:
+        model_error = "KNN_model.pkl not found in root directory. Please upload your model artifact."
 
-        if missing_features:
-            # Returns simple string on bad parameter inputs
-            return f"Missing required features: {', '.join(missing_features)}", 400
+    if request.method == 'POST':
+        # Safely grab inputs from the user form submission
+        inputs = {
+            'transaction_amount': float(request.form.get('transaction_amount', 0)),
+            'hour_of_day': int(request.form.get('hour_of_day', 0)),
+            'is_weekend': int(request.form.get('is_weekend', 0)),
+            'num_items': int(request.form.get('num_items', 0)),
+            'customer_age': int(request.form.get('customer_age', 0)),
+            'prev_transactions': int(request.form.get('prev_transactions', 0)),
+            'distance_from_home': float(request.form.get('distance_from_home', 0)),
+            'device_type': int(request.form.get('device_type', 0)),
+            'network_quality': int(request.form.get('network_quality', 0)),
+            'is_first_transaction': int(request.form.get('is_first_transaction', 0)),
+            'store_type': int(request.form.get('store_type', 0)),
+            'velocity_score': float(request.form.get('velocity_score', 0))
+        }
 
-        input_data = np.array([features])
-        prediction = model.predict(input_data)
-        
-        try:
-            probabilities = model.predict_proba(input_data)
-            confidence = float(np.max(probabilities))
-        except AttributeError:
-            confidence = "None"
+        if model is not None:
+            try:
+                # Structure features exactly matching the trained model pipeline
+                input_df = pd.DataFrame([inputs])
+                
+                # Fetch base prediction class
+                prediction = int(model.predict(input_df)[0])
+                
+                # Try fetching structural probabilities if the KNN supports it
+                if hasattr(model, "predict_proba"):
+                    prob_array = model.predict_proba(input_df)[0]
+                    # Show target confidence depending on output target value
+                    probability = float(prob_array[1] if prediction == 1 else prob_array[0]) * 100
+            except Exception as e:
+                model_error = f"Prediction failed structure match: {str(e)}"
 
-        # Returns a plain text format separated by a "|" string
-        return f"{int(prediction[0])}|{confidence}", 200
+    return render_template_string(
+        HTML_TEMPLATE, 
+        prediction=prediction, 
+        probability=probability, 
+        model_error=model_error, 
+        inputs=inputs
+    )
 
-    except Exception as e:
-        return f"Server Error: {str(e)}", 500
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
